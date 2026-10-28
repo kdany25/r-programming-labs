@@ -1,0 +1,22 @@
+# Secrets: database passwords and API keys live here, never in the code
+.Renviron
+.Rprofile
+
+# RStudio / R session files
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+
+# Knitting leftovers. The .html and .pdf are kept on purpose so the work can be
+# read on GitHub without running anything, but these are pure noise.
+*.knit.md
+*.utf8.md
+*_files/
+*.log
+*.aux
+*.toc
+*.out
+
+# macOS
+.DS_Store

@@ -1,0 +1,385 @@
+---
+title: "HW1: Importing Data into R"
+subtitle: "From statistical packages, database management systems, APIs, CSV and other sources"
+author: "Dany Kabalisa"
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output:
+  pdf_document:
+    toc: true
+    number_sections: true
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+# echo = TRUE       -> show the code in the final document, not only the output
+# message / warning -> hide the chatty package startup messages
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+# Introduction
+
+In this homework I import data into R from different sources: CSV and text
+files, Excel, statistical packages (SPSS, Stata, SAS), a MySQL database,
+a web API, and a few other sources like XML and a web page.
+
+First I create a small data frame of students and save it in the different
+file formats. Then I import each file back into R, one format at a time.
+The database part reads from a MySQL database called `simba`.
+
+```{r packages}
+# Every package used in this document. Installing them here means the file
+# also knits on a computer that does not have them yet.
+pkgs <- c("readr", "readxl", "writexl", "haven", "DBI",
+          "RMariaDB", "jsonlite", "xml2", "rvest")
+
+# installed.packages() lists what is already on this machine, so this keeps
+# only the names that are missing and installs those.
+new_pkgs <- pkgs[!pkgs %in% rownames(installed.packages())]
+if (length(new_pkgs) > 0) install.packages(new_pkgs, repos = "https://cloud.r-project.org")
+
+library(readr)     # read_csv(), faster CSV reading
+library(readxl)    # read_excel()
+library(writexl)   # write_xlsx()
+library(haven)     # SPSS, Stata and SAS files
+library(DBI)       # databases
+library(jsonlite)  # JSON, used for the API
+library(xml2)      # XML
+library(rvest)     # web scraping
+```
+
+# Creating the data
+
+Everything starts from one small table of eight students. I build it with
+`data.frame()`: each argument becomes one column, and `c()` holds the values
+of that column.
+
+```{r make-data}
+students <- data.frame(
+  id      = 1:8,
+  name    = c("Aline", "Eric", "Grace", "Jean", "Kevin", "Diane", "Olivier", "Sandra"),
+  gender  = c("F", "M", "F", "M", "M", "F", "M", "F"),
+  age     = c(23, 27, 25, 31, 24, 29, 26, 28),
+  program = c("MSc IT", "MSc DS", "MSc DS", "MBA", "MSc IT", "MSc DS", "MBA", "MSc IT"),
+  score   = c(78.5, 85.0, 91.5, 66.0, 72.5, 88.0, 59.5, 81.0)
+)
+students
+```
+
+Now I save that same table in six different formats. This gives me real files
+to import in the rest of the homework, instead of looking for files somewhere
+on the computer.
+
+```{r save-files}
+# showWarnings = FALSE stops R from complaining when the folder already exists
+dir.create("data", showWarnings = FALSE)
+
+# row.names = FALSE keeps R from adding an extra column of row numbers
+write.csv(students, "data/students.csv", row.names = FALSE)
+
+# sep = "\t" writes a tab between the columns instead of a comma
+write.table(students, "data/students.txt", sep = "\t", row.names = FALSE)
+
+write_xlsx(students, "data/students.xlsx")   # Excel
+
+write_sav(students, "data/students.sav")     # SPSS
+write_dta(students, "data/students.dta")     # Stata
+write_xpt(students, "data/students.xpt")     # SAS transport file
+
+list.files("data")
+```
+
+Note that all the paths are written as `data/students.csv` and not as a full
+path like `/Users/me/Documents/...`. A short path like that is relative to the
+folder holding this file, so the document still works when somebody else opens
+the project on their own computer.
+
+# CSV and text files
+
+A CSV is just a text file where a comma separates the columns. `read.csv()`
+is the base R function for it, and it gives back a normal data frame.
+
+```{r csv}
+csv_data <- read.csv("data/students.csv")
+
+# str() is the quickest way to check an import went well: it shows how many
+# rows and columns arrived, and the type R gave to each column.
+str(csv_data)
+```
+
+The `readr` package does the same job but is faster on big files and returns a
+tibble, which is a data frame that prints more neatly and shows column types.
+
+```{r csv-readr}
+csv_data2 <- read_csv("data/students.csv")
+csv_data2
+```
+
+The text file uses tabs instead of commas, so I have to say so. `header = TRUE`
+tells R that the first line holds the column names and is not data.
+
+```{r txt}
+txt_data <- read.table("data/students.txt", header = TRUE, sep = "\t")
+head(txt_data)
+```
+
+# Excel files
+
+An Excel file can hold several sheets, so the first thing to do is look at what
+is inside before reading anything.
+
+```{r excel}
+excel_sheets("data/students.xlsx")
+
+# With only one sheet I can leave the sheet argument out. For a file with
+# several sheets I would write sheet = "students" or sheet = 2.
+excel_data <- read_excel("data/students.xlsx")
+head(excel_data)
+```
+
+# Statistical packages (SPSS, Stata, SAS)
+
+`haven` reads files from all three programs. The function changes with the
+program: `read_sav()` for SPSS, `read_dta()` for Stata, and `read_xpt()` or
+`read_sas()` for SAS.
+
+## SPSS
+
+```{r spss}
+spss_data <- read_sav("data/students.sav")
+head(spss_data)
+```
+
+## Stata
+
+```{r stata}
+stata_data <- read_dta("data/students.dta")
+head(stata_data)
+```
+
+## SAS
+
+```{r sas}
+sas_data <- read_xpt("data/students.xpt")
+head(sas_data)
+```
+
+A real SAS data file ends in `.sas7bdat` and needs `read_sas()`. I do not have
+one, but `haven` ships with an example, and `system.file()` finds where that
+example was installed.
+
+```{r sas7bdat}
+sas_iris <- read_sas(system.file("examples", "iris.sas7bdat", package = "haven"))
+head(sas_iris)
+```
+
+## Labelled values
+
+One thing is different about files from these programs, and it catches people
+out. SPSS and Stata usually store a category as a *number with a label
+attached*: the file holds 1 and 2, and remembers separately that 1 means
+Female and 2 means Male. My own file above was written from plain text, so it
+has no labels, but the SPSS example that comes with `haven` does.
+
+```{r spss-labels}
+iris_spss <- read_sav(system.file("examples", "iris.sav", package = "haven"))
+
+# Species arrives as numbers 1, 2, 3 ...
+head(iris_spss$Species)
+
+# ... and the meaning of those numbers is kept as an attribute
+attr(iris_spss$Species, "labels")
+```
+
+Counting those numbers directly would give a meaningless table, so
+`as_factor()` swaps each number for its label and gives an ordinary R factor:
+
+```{r spss-as-factor}
+iris_spss$Species <- as_factor(iris_spss$Species)
+table(iris_spss$Species)
+```
+
+# Database management system (MySQL)
+
+R talks to databases through the `DBI` package plus a driver for the specific
+database. For MySQL the driver is `RMariaDB`.
+
+The database here is `simba`, running on my own machine. Since this homework
+is in a public repository, I do not write the password in the code. R reads it
+from environment variables instead, and falls back to the values I use locally
+when those variables are not set. To set your own, put a line like
+`SIMBA_PASSWORD=yourpassword` in a file called `.Renviron` in this folder and
+restart R.
+
+```{r mysql-connect}
+db_host <- Sys.getenv("SIMBA_HOST", "127.0.0.1")
+db_user <- Sys.getenv("SIMBA_USER", "root")
+db_pass <- Sys.getenv("SIMBA_PASSWORD", "")
+db_name <- Sys.getenv("SIMBA_DB",   "simba")
+
+# try() means a failed connection does not stop the whole document. Anyone
+# without this database still gets a knitted file; the database sections are
+# simply skipped. See sql/01_create_simba_sample.sql to create the database.
+con <- try(
+  dbConnect(RMariaDB::MariaDB(),
+            host = db_host, port = 3306,
+            user = db_user, password = db_pass,
+            dbname = db_name),
+  silent = TRUE
+)
+
+# TRUE when the connection worked. The chunks below use it as eval = db_ok,
+# which is how an R Markdown chunk is switched on or off.
+db_ok <- !inherits(con, "try-error")
+db_ok
+```
+
+```{r mysql-tables, eval=db_ok}
+# What tables are in this database?
+dbListTables(con)
+```
+
+The simplest way to import is to pull a whole table into R:
+
+```{r mysql-table, eval=db_ok}
+products <- dbReadTable(con, "products")
+dim(products)   # rows, columns
+
+head(products[, c("id", "name", "unit_price", "quantity_in_stock")])
+```
+
+Pulling the whole table is fine for a small one, but a real table can have
+millions of rows. `dbGetQuery()` is the better habit: the database does the
+filtering and only the answer travels back to R. Here I look for the products
+that have run low and need to be ordered again.
+
+```{r mysql-query, eval=db_ok}
+low_stock <- dbGetQuery(con, "
+  SELECT name, quantity_in_stock, reorder_level
+  FROM products
+  WHERE quantity_in_stock <= reorder_level
+  ORDER BY quantity_in_stock")
+low_stock
+```
+
+The same idea with a summary. Counting and averaging inside SQL is much faster
+than bringing every row into R and doing it there.
+
+```{r mysql-group, eval=db_ok}
+dbGetQuery(con, "
+  SELECT category_id,
+         COUNT(*)                     AS products,
+         ROUND(AVG(unit_price), 0)    AS avg_price
+  FROM products
+  GROUP BY category_id")
+```
+
+When a value comes from outside, put a `?` in the query and pass the value
+through `params`. The database then treats it as data and never as part of the
+SQL, which is what stops SQL injection.
+
+```{r mysql-param, eval=db_ok}
+dbGetQuery(con, "SELECT name, unit_price FROM products WHERE unit_price >= ?",
+           params = list(2000))
+```
+
+```{r mysql-close, eval=db_ok}
+# A connection is a real network socket, so close it when the work is done.
+dbDisconnect(con)
+```
+
+Only the driver changes for another database system. Everything after
+`dbConnect()` stays exactly the same:
+
+| Database | Driver |
+|----------|--------|
+| MySQL / MariaDB | `RMariaDB::MariaDB()` |
+| PostgreSQL | `RPostgres::Postgres()` |
+| SQLite | `RSQLite::SQLite()` |
+| SQL Server, Oracle, Access | `odbc::odbc()` |
+
+# Web API
+
+An API is a web address that returns data instead of a web page. The World
+Bank has a free one, and this request asks for the total population of Rwanda
+(country code `RW`). It answers in JSON, which `fromJSON()` turns into R
+objects.
+
+```{r api}
+url <- "https://api.worldbank.org/v2/country/RW/indicator/SP.POP.TOTL?format=json&per_page=30"
+wb <- fromJSON(url)
+
+# This API answers with a list of two parts: [[1]] is information about the
+# page (how many results, which page) and [[2]] is the actual data.
+rwanda_pop <- data.frame(year       = as.integer(wb[[2]]$date),
+                         population = wb[[2]]$value)
+
+# The API returns the newest year first, so I put it back in order
+rwanda_pop <- rwanda_pop[order(rwanda_pop$year), ]
+tail(rwanda_pop)
+```
+
+```{r api-plot}
+# Dividing by 1e6 keeps the axis readable: millions instead of 14569341
+plot(rwanda_pop$year, rwanda_pop$population / 1e6, type = "l",
+     xlab = "Year", ylab = "Population (millions)",
+     main = "Population of Rwanda")
+```
+
+# Other sources
+
+## XML
+
+XML stores data as a tree of tags. Instead of rows and columns you point at the
+tags you want with a path, where `//name` means "every `<name>` tag anywhere in
+the document".
+
+```{r xml}
+xml_string <- "<students>
+  <student><name>Aline</name><score>78</score></student>
+  <student><name>Eric</name><score>85</score></student>
+  <student><name>Grace</name><score>91</score></student>
+</students>"
+
+doc <- read_xml(xml_string)
+
+data.frame(
+  name  = xml_text(xml_find_all(doc, "//name")),
+  # everything arrives as text, so the scores need converting to numbers
+  score = as.numeric(xml_text(xml_find_all(doc, "//score")))
+)
+```
+
+## Web scraping
+
+Sometimes the data is only on a web page. `rvest` downloads the page and pulls
+the table out of the HTML.
+
+```{r scraping}
+page <- read_html("https://en.wikipedia.org/wiki/Provinces_of_Rwanda")
+
+# "table.wikitable" is the CSS selector for the first table with the
+# wikitable class, which is the standard style for data tables on Wikipedia
+provinces <- html_table(html_element(page, "table.wikitable"))
+provinces[, 1:4]
+```
+
+## Built-in datasets
+
+R also ships with datasets for practising. `data()` opens the full list in a
+new tab in RStudio.
+
+```{r builtin}
+data(airquality)
+head(airquality)
+```
+
+# Conclusion
+
+Each source needs its own function: `read.csv()` for CSV, `read_excel()` for
+Excel, `read_sav()` for SPSS, `dbGetQuery()` for a database, `fromJSON()` for
+an API. What they all have in common is where they end: whatever the source,
+the data lands in R as a data frame, which is the shape the rest of R expects
+for cleaning, analysis and plotting.
