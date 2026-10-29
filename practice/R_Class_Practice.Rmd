@@ -1,0 +1,1359 @@
+---
+title: "R for Data Science — Full Practice Notebook"
+subtitle: "Data structures, EDA, bivariate analysis, models and data management"
+author: "Dany Kabalisa"
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    number_sections: true
+  pdf_document:
+    toc: true
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE,
+                      fig.width = 6, fig.height = 4)
+```
+
+# How to use this notebook
+
+This brings together everything from the class notes and the class RPubs page,
+plus the pieces that were only mentioned in passing (chi-square, ANOVA, MANOVA,
+regression assumptions, dplyr, ggplot2).
+
+Work through it with the green ▶ on each chunk, one chunk at a time, in order.
+Change the numbers and re-run. Breaking something and fixing it is the fastest
+way to remember it.
+
+Each part ends with a **Practice** block. The answers are in the last section,
+so try first and check after.
+
+```{r packages}
+pkgs <- c("dplyr", "ggplot2")
+new_pkgs <- pkgs[!pkgs %in% rownames(installed.packages())]
+if (length(new_pkgs) > 0) install.packages(new_pkgs, repos = "https://cloud.r-project.org")
+
+library(dplyr)
+library(ggplot2)
+```
+
+---
+
+# Part 1 — Data structures
+
+Everything in R is built from a handful of structures. Knowing which one you are
+holding explains most error messages you will ever get.
+
+## Vectors
+
+A vector is a row of values **of one single type**. `c()` ("combine") builds one.
+
+```{r vectors}
+# numeric
+age <- c(20, 35, 32, 29)
+age
+mean(age)
+summary(age)
+
+# character
+gender <- c("M", "F", "F", "M")
+gender
+
+# logical
+flags <- c(TRUE, FALSE, TRUE)
+flags
+# T and F are short forms of the same thing
+c(T, F)
+
+# integer: the colon makes a sequence
+x <- 9:29
+x
+
+# complex (rare in data work, but it is a type)
+c(1 + 0i, 2 + 4i)
+```
+
+`class()` tells you which type you ended up with:
+
+```{r vector-class}
+class(age)
+class(gender)
+class(flags)
+class(9:29)
+```
+
+## The bracket trick
+
+Assigning with `<-` stores a value **silently**. Wrapping the whole line in
+round brackets stores *and* prints it. Handy while exploring, so you do not have
+to type the name again on the next line.
+
+```{r bracket-trick}
+y <- c(1, 2, 3)        # silent, nothing appears
+(y <- c(1, 2, 3))      # same assignment, but the result is printed
+```
+
+## Coercion
+
+A vector cannot mix types, so if you force different types together R quietly
+converts them all to the most flexible one. This is **coercion**, and it is a
+very common source of bugs.
+
+```{r coercion}
+# TRUE becomes 1 and FALSE becomes 0, so logicals can be summed
+sum(c(TRUE, TRUE, FALSE, FALSE, FALSE))
+
+# one piece of text turns the entire vector into text
+mixed <- c(1, 2, "three")
+class(mixed)
+mixed
+
+# which means arithmetic now fails
+# mean(mixed)   # uncomment to see the error
+
+# as.numeric() converts back where possible; anything else becomes NA
+as.numeric(c("10", "20", "abc"))
+```
+
+## Matrices
+
+A matrix is a vector folded into rows and columns. Still one single type.
+
+```{r matrix}
+(x <- matrix(1:6, nrow = 2, ncol = 3))
+(y <- matrix(1:6, nrow = 3, ncol = 2))
+
+dim(x)        # rows, columns
+
+x %*% y       # %*% is real matrix multiplication
+x * 2         # a single * works element by element
+t(x)          # transpose
+```
+
+## Lists
+
+A list is the flexible one: each slot can hold anything, even another list.
+
+```{r list}
+(mylist <- list(1, "a", TRUE, 1 + 4i))
+
+# naming the slots makes a list much easier to use
+person <- list(name = "Aline", age = 23, scores = c(78, 85, 91))
+person$name
+person$scores
+person$scores[2]
+```
+
+## Factors
+
+A factor is a **categorical** variable. It looks like text but R stores it as
+numbers with labels, and remembers the full set of possible values (the levels).
+Statistical functions treat factors as groups, which is exactly what you want
+for a variable like gender or species.
+
+```{r factor}
+(status <- factor(c("yes", "yes", "no", "yes", "no")))
+levels(status)
+table(status)
+
+# as.integer() shows the numbers hiding underneath
+as.integer(status)
+```
+
+## Missing values
+
+`NA` means "not available". It is not zero and it is not the text `"NA"`.
+
+```{r missing}
+x <- c(1, 2, NA, 10, 3)
+is.na(x)
+
+# most calculations refuse to guess, so they return NA
+mean(x)
+# na.rm = TRUE says "ignore the missing ones"
+mean(x, na.rm = TRUE)
+
+# keep only the good values: ! flips TRUE and FALSE
+bad <- is.na(x)
+x[!bad]
+
+# complete.cases() works across several vectors at once:
+# TRUE only where BOTH have a value
+x <- c(1, 2, NA, 4, NA, 5)
+y <- c("a", "b", NA, "d", NA, "f")
+(good <- complete.cases(x, y))
+```
+
+Watch out for the trap in the class notes:
+
+```{r missing-trap}
+x <- c(1, 2, 4, "NA", 5)   # "NA" in quotes is just text
+is.na(x)                   # all FALSE: R sees no missing value here
+class(x)                   # and the whole vector became character
+```
+
+## Data frames
+
+A data frame is the one you will use most: a table where each column is a vector
+and **different columns may hold different types**. It is R's spreadsheet.
+
+```{r dataframe}
+studentID  <- c(1, 2, 3, 4, 5)
+gender     <- c("M", "F", "M", "M", "F")
+math_score <- c(12, 17, 10, 9, NA)
+it_score   <- c(13, 18, 11, 10, 19)
+
+scoredata <- data.frame(studentID, gender, math_score, it_score)
+scoredata
+
+str(scoredata)    # structure: the single most useful check
+nrow(scoredata)
+ncol(scoredata)
+dim(scoredata)
+names(scoredata)
+```
+
+`View(scoredata)` opens it as a spreadsheet, and `edit()` lets you type data by
+hand. Both only work in RStudio, never while knitting, so they are switched off
+here.
+
+```{r interactive, eval=FALSE}
+View(scoredata)
+
+# typing a small dataset straight into a window
+data_class2 <- data.frame(height = numeric(0),
+                          weight = numeric(0),
+                          bmi    = numeric(0))
+data_class2 <- edit(data_class2)
+```
+
+### Practice 1
+
+1. Build a vector of five exam marks and find its mean and standard deviation.
+2. Put one mark in quotes and run `class()` on the vector. What happened?
+3. Make a 3 × 3 matrix of the numbers 1 to 9 and multiply it by itself.
+4. Make a factor from `c("low","high","low","medium")` and list its levels.
+5. Replace one mark with `NA` and compute the mean, ignoring the missing value.
+
+---
+
+# Part 2 — The class dataset
+
+The class used a file of heights and weights. We do not have that exact file, so
+this chunk creates a very similar one and saves it. `set.seed()` fixes the random
+numbers so you get the same data every time you run it.
+
+```{r make-class-data}
+set.seed(2026)
+
+n <- 40
+HEIGHT <- round(rnorm(n, mean = 170, sd = 9), 0)
+# weight is built from height plus noise, so the two are genuinely related
+WEIGHT <- round(0.55 * HEIGHT - 25 + rnorm(n, 0, 4), 0)
+
+data_class <- data.frame(HEIGHT, WEIGHT)
+
+dir.create("data", showWarnings = FALSE)
+write.table(data_class, "data/class_data.txt", row.names = FALSE)
+
+head(data_class)
+```
+
+Now read it back, the way the class did with their own file:
+
+```{r read-class-data}
+data_class <- read.table("data/class_data.txt", header = TRUE)
+head(data_class)
+```
+
+`header = TRUE` matters: without it `read.table()` treats the names row as data
+and every column arrives as text.
+
+---
+
+# Part 3 — Looking at the data
+
+The first five minutes with any dataset are always the same four commands.
+
+```{r first-look}
+head(data_class)        # first 6 rows
+tail(data_class)        # last 6 rows
+str(data_class)         # how many rows, which columns, which types
+summary(data_class)     # min, Q1, median, mean, Q3, max for every column
+```
+
+`summary()` on a single column gives the five-number summary plus the mean:
+
+```{r summary-one}
+summary(data_class$WEIGHT)
+length(data_class$WEIGHT)
+variable.names(data_class)
+```
+
+## Reaching inside a data frame
+
+```{r subsetting-basics}
+# $ pulls out one column as a vector
+data_class$WEIGHT[1:5]
+
+# [rows, columns] — leave a side empty to mean "all of it"
+data_class[10:20, ]      # rows 10 to 20, every column
+data_class[, 1]          # column 1, every row
+data_class[5, 2]         # one single cell
+data_class[1:3, "HEIGHT"]
+
+# a minus sign DROPS instead of keeping
+head(data_class[, -1])   # everything except column 1
+```
+
+## `$` versus `[ ]` versus `[[ ]]`
+
+This confuses everybody at first. The rule is about **what comes back**.
+
+```{r brackets}
+# single [ ] keeps the data frame shape
+class(data_class["HEIGHT"])
+# $ and [[ ]] dig out the bare vector inside
+class(data_class$HEIGHT)
+class(data_class[["HEIGHT"]])
+```
+
+Use `$` when you want the values, and `[ ]` when you want a smaller table.
+`[[ ]]` does the same job as `$` but accepts a variable holding the name, which
+is what makes it useful inside loops and functions:
+
+```{r brackets-2}
+wanted <- "WEIGHT"
+head(data_class[[wanted]])     # works
+head(data_class$wanted)        # NULL: R looked for a column literally called "wanted"
+```
+
+## Built-in datasets
+
+R ships with datasets for practising. `data()` lists them in a new tab in
+RStudio, which is why nothing appears in the console.
+
+```{r builtin-datasets}
+# the names only, so it prints here too
+head(data()$results[, c("Package", "Item")], 10)
+```
+
+Load one and read its help page. `?airquality` explains every column — always
+worth doing before you analyse anything.
+
+```{r load-airquality}
+data("airquality")
+str(airquality)
+variable.names(airquality)
+```
+
+```{r help-page, eval=FALSE}
+?airquality
+?apply
+```
+
+Copying a dataset to your own name keeps the original safe while you experiment:
+
+```{r rename-dataset}
+air <- airquality
+head(air, 3)
+```
+
+### Practice 2
+
+1. Show rows 20 to 25 of `airquality`, columns `Ozone` and `Temp` only.
+2. Drop the `Month` and `Day` columns and show the first rows.
+3. How many rows does `airquality` have? How many missing `Ozone` values?
+4. What is the difference between `airquality["Temp"]` and `airquality$Temp`?
+
+---
+
+# Part 4 — Summary statistics
+
+## Mean, SD and the quartiles
+
+```{r stats-basic}
+mean(data_class$HEIGHT)
+sd(data_class$HEIGHT)
+median(data_class$HEIGHT)
+min(data_class$HEIGHT)
+max(data_class$HEIGHT)
+range(data_class$HEIGHT)
+var(data_class$HEIGHT)
+
+# quantile() is where Q1 and Q3 in summary() come from
+quantile(data_class$HEIGHT)
+quantile(data_class$HEIGHT, 0.25)   # first quartile on its own
+IQR(data_class$HEIGHT)              # Q3 - Q1
+```
+
+## Reporting two numbers together
+
+`c()` glues results into one labelled vector. Naming the parts makes the output
+readable, which matters when you paste it into a report.
+
+```{r stats-c}
+# without names
+c(mean(data_class$HEIGHT), sd(data_class$HEIGHT))
+
+# with names — much clearer
+c(Mean = mean(data_class$HEIGHT), SD = sd(data_class$HEIGHT))
+c(Mean = mean(data_class$WEIGHT), SD = sd(data_class$WEIGHT))
+```
+
+## `apply()` and friends
+
+`apply()` runs the same function down every column or across every row.
+The middle number is the direction: **1 = rows, 2 = columns**.
+
+```{r apply}
+# the mean of each row (here: the average of a person's height and weight,
+# which is not meaningful, but it shows the mechanics)
+head(apply(data_class, 1, mean))
+
+# the standard deviation of each column — this one is useful
+apply(data_class, 2, sd)
+apply(data_class, 2, mean)
+apply(data_class, 2, summary)
+```
+
+Remember the direction with: **1 before 2, rows before columns**.
+
+For plain sums and means there are faster ready-made versions:
+
+```{r rowcolsums}
+colSums(data_class)
+colMeans(data_class)
+head(rowSums(data_class))
+
+# na.rm = TRUE is needed whenever the data has gaps
+colMeans(airquality)                 # NA wherever a column has missing values
+colMeans(airquality, na.rm = TRUE)   # the answer you actually wanted
+```
+
+### Practice 3
+
+1. Find the mean and SD of `Temp` in `airquality` in one labelled vector.
+2. Use `apply()` to get the maximum of every column of `airquality`
+   (remember `na.rm = TRUE`).
+3. What is the third quartile of `Wind`?
+
+---
+
+# Part 5 — Bivariate analysis
+
+Looking at two variables together. Which tool you reach for depends entirely on
+the **types** of the two variables, so it is worth memorising this table:
+
+| Variable 1 | Variable 2 | Look at it with | Test it with |
+|---|---|---|---|
+| Quantitative | Quantitative | scatter plot, `cor()` | `cor.test()`, `lm()` |
+| Categorical | Quantitative | boxplot, `by()` | t-test (2 groups), ANOVA (3+) |
+| Categorical | Categorical | `table()`, bar chart | chi-square test |
+
+## 5.1 Quantitative vs quantitative
+
+```{r scatter}
+plot(WEIGHT ~ HEIGHT, data = data_class,
+     main = "Weight against height", xlab = "Height (cm)", ylab = "Weight (kg)")
+
+# the same plot written the other way round: plot(x, y)
+plot(data_class$HEIGHT, data_class$WEIGHT, main = "Same plot, different syntax")
+
+# and by column position
+plot(data_class[, 1], data_class[, 2], main = "Graph")
+```
+
+Correlation puts a number on the strength of that relationship, between −1 and
++1:
+
+```{r correlation}
+cor(data_class$HEIGHT, data_class$WEIGHT)
+```
+
+`cor()` gives the number. `cor.test()` also tells you whether it is strong
+enough to take seriously, with a p-value and a confidence interval:
+
+```{r cor-test}
+cor.test(data_class$HEIGHT, data_class$WEIGHT)
+```
+
+A p-value below 0.05 means a correlation this far from zero would be unlikely if
+the two variables were truly unrelated.
+
+## 5.2 Categorical vs quantitative
+
+The question here is always the same: **does the average change from group to
+group?**
+
+```{r iris-groups}
+data("iris")
+head(iris)
+
+# overall mean, ignoring the groups
+mean(iris$Petal.Length)
+
+# one group at a time, by filtering inside the square brackets
+mean(iris$Petal.Length[iris$Species == "setosa"])
+mean(iris$Petal.Length[iris$Species == "versicolor"])
+mean(iris$Petal.Length[iris$Species == "virginica"])
+```
+
+Note the double `==`. One `=` assigns, two `==` compares. Writing `=` by mistake
+is one of the most common beginner errors.
+
+`by()` does all three at once, which is the shortcut from class:
+
+```{r by}
+by(iris$Petal.Length, iris$Species, mean)
+by(iris$Petal.Length, iris$Species, sd)
+by(iris$Petal.Length, iris$Species, summary)
+```
+
+`tapply()` does the same and returns a tidy named vector:
+
+```{r tapply}
+tapply(iris$Petal.Length, iris$Species, mean)
+aggregate(Petal.Length ~ Species, data = iris, FUN = mean)
+```
+
+### Visualising it: the boxplot
+
+A boxplot is the standard picture for categorical against quantitative. The box
+runs from Q1 to Q3, the thick line is the median, the whiskers reach the rest of
+the data and the dots are outliers.
+
+```{r boxplot}
+boxplot(iris$Sepal.Length ~ iris$Species, data = iris,
+        main = "Comparison of categorical vs quantitative",
+        xlab = "Species", ylab = "Sepal length (cm)",
+        col = c("lightblue", "lightgreen", "pink"))
+```
+
+The `~` means "by" or "explained by": `Sepal.Length ~ Species` reads as
+"sepal length broken down by species".
+
+### Testing it: ANOVA
+
+The boxplot suggests the groups differ. ANOVA (analysis of variance) checks
+whether that difference is bigger than random variation would explain.
+
+The hypotheses, written out:
+
+- **H₀** (null): all the group means are equal, μ₁ = μ₂ = μ₃
+- **H₁** (alternative): at least one mean is different
+
+```{r anova}
+fit_aov <- aov(Sepal.Length ~ Species, data = iris)
+summary(fit_aov)
+```
+
+Read the `Pr(>F)` column. It is far below 0.05, so we reject H₀: the species
+really do differ in sepal length.
+
+ANOVA only says "at least one differs". `TukeyHSD()` says **which** ones:
+
+```{r tukey}
+TukeyHSD(fit_aov)
+```
+
+With only two groups you would use a t-test instead:
+
+```{r ttest}
+two_species <- iris[iris$Species != "virginica", ]
+t.test(Sepal.Length ~ Species, data = two_species)
+```
+
+### MANOVA
+
+ANOVA handles one response variable. MANOVA handles several at once, which is
+useful when the outcomes are related, as petal and sepal measurements are.
+
+```{r manova}
+fit_man <- manova(cbind(Sepal.Length, Petal.Length) ~ Species, data = iris)
+summary(fit_man)
+
+# and the individual ANOVAs behind it
+summary.aov(fit_man)
+```
+
+## 5.3 Categorical vs categorical
+
+Here the tool is a **cross-tabulation**: a table of counts.
+
+```{r table-basic}
+table(iris$Species)
+
+# two variables at once gives a contingency table
+ucba <- data.frame(UCBAdmissions)
+head(ucba)
+```
+
+`UCBAdmissions` is already summarised: each row is a count (`Freq`), not a
+person. `xtabs()` builds a table from counts like these.
+
+```{r xtabs}
+(cross <- xtabs(Freq ~ Gender + Admit, data = ucba))
+```
+
+Raw counts are hard to compare when the groups are different sizes, so convert
+to proportions. The second argument is the direction again: **1 = by row**.
+
+```{r proptable}
+prop.table(cross, 1)    # each ROW adds to 1: admission rate within each gender
+prop.table(cross, 2)    # each COLUMN adds to 1
+prop.table(cross)       # everything adds to 1
+```
+
+**Is there gender bias in UCB graduate admission?** On these numbers about 44%
+of men were admitted against about 30% of women. Hold that thought for Part 6.
+
+### Testing it: chi-square
+
+The chi-square test of independence asks whether two categorical variables are
+related.
+
+- **H₀**: the two variables are independent (gender and admission are unrelated)
+- **H₁**: they are not independent
+
+```{r chisq}
+chisq.test(cross)
+```
+
+A p-value under 0.05 rejects independence. You can look at what the table would
+have been under H₀:
+
+```{r chisq-expected}
+test <- chisq.test(cross)
+test$expected    # counts expected if gender and admission were unrelated
+test$observed    # what actually happened
+round(test$residuals, 2)   # where the biggest departures are
+```
+
+Chi-square needs reasonably large expected counts (a common rule is at least 5
+in each cell). For small tables, use Fisher's exact test instead:
+
+```{r fisher}
+fisher.test(cross)
+```
+
+### Visualising it: bar charts
+
+```{r barcharts}
+# side by side: best for comparing groups directly
+barplot(cross, beside = TRUE, legend = TRUE,
+        main = "Side-by-side bar chart", col = c("steelblue", "tomato"))
+
+# stacked: best for showing composition of a total
+barplot(cross, beside = FALSE, legend = TRUE,
+        main = "Stacked bar chart", col = c("steelblue", "tomato"))
+```
+
+The two bar charts from the class notes, built from a typed table:
+
+```{r barplot-class}
+dat <- read.table(text = "ProdA ProdB ProdC ProdD
+1 110 50 60 70
+2 120 50 80 65", header = TRUE)
+barplot(as.matrix(dat), beside = TRUE, col = c("red", "green"),
+        main = "Products, two periods")
+
+dat2 <- read.table(text = "A   B   C   D   E   F    G
+1 10 80 30 90 70 60  90
+2 20 50 70 50 40 10  40
+3 60 80 80 60 60 30 160
+4 20 40 70 80 20 10  70", header = TRUE)
+barplot(as.matrix(dat2), main = "Stacked by default")
+```
+
+Note `read.table(text = "...")` — a neat way to type a small table directly
+into your code instead of creating a file.
+
+### Practice 5
+
+1. Compare `Sepal.Width` across species with `by()` and a boxplot.
+2. Run an ANOVA on `Sepal.Width ~ Species`. Do the species differ?
+3. Build a table of `Dept` against `Gender` from `ucba` and convert it to row
+   proportions.
+4. Is `Ozone` correlated with `Temp` in `airquality`? Watch out for the NAs —
+   `cor()` needs `use = "complete.obs"`.
+
+---
+
+# Part 6 — Simpson's paradox
+
+This is the most important idea in the whole class, because it is how a correct
+calculation can still give the wrong answer.
+
+Overall, men were admitted at a much higher rate than women:
+
+```{r simpson-overall}
+prop.table(cross, 1)
+```
+
+Now look at the same data **one department at a time**:
+
+```{r simpson-by-dept}
+for (d in levels(ucba$Dept)) {
+  cat("\n--- Department", d, "---\n")
+  tab <- xtabs(Freq ~ Gender + Admit, data = ucba[ucba$Dept == d, ])
+  print(round(prop.table(tab, 1), 3))
+}
+```
+
+In most individual departments women were admitted at the **same or a higher**
+rate than men. The overall figure reverses once you split the data up. That
+reversal is **Simpson's paradox**.
+
+The explanation is a hidden third variable: women applied in larger numbers to
+departments that reject most applicants, while men applied to easier ones.
+
+```{r simpson-explanation}
+# how hard each department is overall
+round(prop.table(xtabs(Freq ~ Dept + Admit, data = ucba), 1), 3)
+
+# where each gender applied
+xtabs(Freq ~ Dept + Gender, data = ucba)
+```
+
+The lesson: **always ask what you have not split by.** An aggregate number can
+hide, or even invert, what is happening underneath.
+
+## Frequentist and Bayesian thinking
+
+Two different ways of answering "what does this data tell me?", mentioned in
+class:
+
+- **Frequentist**: treats the truth as fixed and the data as random. It asks
+  "if H₀ were true, how surprising is data like mine?" That is what a p-value
+  measures. Everything in this notebook so far is frequentist.
+- **Bayesian**: starts from a prior belief, collects data, and updates that
+  belief into a posterior. It answers the question people usually *think* a
+  p-value answers: "how likely is my hypothesis, given this data?"
+
+Neither is "correct". Frequentist methods dominate teaching and journals;
+Bayesian methods suit problems with real prior knowledge or little data.
+
+---
+
+# Part 7 — Linear models
+
+Regression draws the best straight line through a scatter plot, so you can
+describe and predict.
+
+```{r lm-plot}
+plot(WEIGHT ~ HEIGHT, data = data_class, main = "With fitted line")
+abline(lm(WEIGHT ~ HEIGHT, data = data_class), col = "red", lwd = 2)
+
+# lowess adds a flexible smooth curve: if it bends far from the straight
+# line, a straight line was the wrong choice
+lines(lowess(data_class$HEIGHT, data_class$WEIGHT), col = "blue", lwd = 2)
+legend("topleft", legend = c("linear", "lowess"),
+       col = c("red", "blue"), lty = 1)
+```
+
+## Fitting and reading the model
+
+```{r lm-fit}
+model <- lm(WEIGHT ~ HEIGHT, data = data_class)
+model              # just the coefficients
+summary(model)     # the full report
+```
+
+How to read `summary()`:
+
+- **Estimate** for `HEIGHT` is the slope: how many kg the weight goes up for
+  each extra cm of height.
+- **(Intercept)** is the predicted weight at height 0 — usually meaningless on
+  its own, it just positions the line.
+- **Pr(>|t|)** is the p-value for the slope. Below 0.05 means the relationship
+  is statistically significant.
+- **R-squared** is the share of the variation in weight that height explains,
+  so a value of 0.60 would mean 60%. Check what this model actually gives
+  below, and remember that a high R-squared still does not prove that height
+  *causes* weight.
+
+Pulling out the pieces separately:
+
+```{r lm-parts}
+coef(model)
+confint(model)                 # 95% confidence interval for the slope
+head(fitted(model))            # the predicted values
+head(residuals(model))         # observed minus predicted
+summary(model)$r.squared
+```
+
+Predicting for new people:
+
+```{r lm-predict}
+new_people <- data.frame(HEIGHT = c(160, 175, 190))
+predict(model, newdata = new_people)
+predict(model, newdata = new_people, interval = "confidence")
+```
+
+## Checking the assumptions
+
+A model only means something if its assumptions hold. `plot(model)` draws four
+diagnostic pictures — this is the step from your notes.
+
+```{r lm-diagnostics, fig.width=7, fig.height=6}
+par(mfrow = c(2, 2))    # 2 x 2 grid of plots
+plot(model)
+par(mfrow = c(1, 1))    # back to one plot at a time
+```
+
+What to look for in each:
+
+| Plot | Assumption | Good sign |
+|---|---|---|
+| Residuals vs Fitted | linearity | points scattered randomly, red line flat |
+| Q-Q Residuals | residuals are normal | points follow the diagonal |
+| Scale-Location | equal variance | even band, no funnel shape |
+| Residuals vs Leverage | no single point dominates | nothing past the dashed Cook's line |
+
+The four assumptions in words: the relationship is **linear**, the errors are
+**independent**, their spread is **constant** (homoscedasticity), and they are
+roughly **normally distributed**.
+
+You can also test them formally:
+
+```{r lm-tests}
+# are the residuals normal? p > 0.05 means no evidence against normality
+shapiro.test(residuals(model))
+
+# a histogram of the residuals should look roughly bell-shaped
+hist(residuals(model), col = "lightblue", main = "Residuals", xlab = "Residual")
+```
+
+## Multiple regression
+
+More than one explanatory variable: just add them with `+`.
+
+```{r multiple-lm}
+air_model <- lm(Ozone ~ Temp + Wind + Solar.R, data = airquality)
+summary(air_model)
+```
+
+Each slope is now the effect of that variable **holding the others fixed**.
+
+```{r histograms}
+hist(data_class$HEIGHT, main = "Height", xlab = "cm")
+hist(data_class$WEIGHT, col = "blue", main = "Weight", xlab = "kg")
+```
+
+### Practice 7
+
+1. Fit `lm(Petal.Length ~ Petal.Width, data = iris)` and report the R-squared.
+2. Draw the diagnostic plots. Do the assumptions look reasonable?
+3. Predict the petal length for a petal width of 1.5.
+4. Add `Sepal.Length` to the model. Does R-squared improve?
+
+---
+
+# Part 8 — Data management
+
+Real data always needs work before it can be analysed.
+
+## Creating new variables
+
+```{r new-variable}
+# attach() lets you type HEIGHT instead of data_class$HEIGHT
+attach(data_class)
+
+BMI <- WEIGHT / (HEIGHT / 100)^2
+(BMI <- round(WEIGHT / (HEIGHT / 100)^2, digits = 2))
+
+detach(data_class)   # always detach when finished
+```
+
+`attach()` is convenient but risky: if a column shares a name with something
+already in your workspace, R may silently use the wrong one. Safer habits are
+`data_class$HEIGHT`, or `with()`:
+
+```{r with}
+BMI <- with(data_class, round(WEIGHT / (HEIGHT / 100)^2, 2))
+head(BMI)
+```
+
+## `cbind()` and `rbind()`
+
+`cbind` glues **c**olumns side by side, `rbind` stacks **r**ows underneath.
+
+```{r cbind-rbind}
+new_data_class <- cbind(data_class, BMI)
+head(new_data_class, 5)
+tail(new_data_class, 3)
+
+# adding rows: the new data must have the same columns
+extra <- data.frame(HEIGHT = c(168, 181), WEIGHT = c(62, 79), BMI = c(21.97, 24.11))
+rbind(head(new_data_class, 2), extra)
+```
+
+The simplest way to add one column is just to name it:
+
+```{r add-column}
+new_data_class$category <- ifelse(new_data_class$BMI < 18.5, "Underweight",
+                           ifelse(new_data_class$BMI < 25, "Normal",
+                           ifelse(new_data_class$BMI < 30, "Overweight", "Obese")))
+head(new_data_class)
+table(new_data_class$category)
+```
+
+`ifelse(test, value_if_true, value_if_false)` works down the whole column at
+once, and nesting it gives you several categories.
+
+## Stem-and-leaf
+
+An old-fashioned text histogram that keeps the actual digits. `scale` makes it
+taller or shorter.
+
+```{r stem}
+summary(BMI)
+stem(BMI, scale = 2)
+```
+
+## Dates
+
+```{r dates}
+today <- Sys.Date()
+today
+format(today, format = "%B %d %Y")
+format(today, format = "%A")
+
+dob <- as.Date("1982-02-10")
+difftime(today, dob, units = "days")
+
+startdate <- as.Date("2004-02-13")
+enddate   <- as.Date("2011-01-22")
+(days <- enddate - startdate)
+
+as.numeric(days) / 365.25   # roughly how many years
+```
+
+Common format codes: `%Y` four-digit year, `%m` month number, `%d` day,
+`%B` month name, `%A` weekday name.
+
+## Handling missing values
+
+The leadership example from class:
+
+```{r leadership}
+manager <- c(1, 2, 3, 4, 5)
+country <- c("US", "US", "UK", "UK", "UK")
+gender  <- c("M", "F", "F", "M", "F")
+age     <- c(32, 45, 25, 39, 99)
+q1 <- c(5, 3, 3, 3, 2)
+q2 <- c(4, 5, 5, 3, 2)
+q3 <- c(5, 2, 5, 4, 1)
+q4 <- c(5, 5, 5, NA, 2)
+q5 <- c(5, 5, 2, NA, 1)
+
+leadership <- data.frame(manager, country, gender, age,
+                         q1, q2, q3, q4, q5, stringsAsFactors = TRUE)
+str(leadership)
+names(leadership)
+```
+
+The age of 99 is not a real age — it is a code meaning "missing". Fix it first,
+otherwise every average you calculate is wrong:
+
+```{r recode-missing}
+leadership$age[leadership$age == 99] <- NA
+leadership$age
+
+is.na(leadership[, 5:9])
+```
+
+Then build an age category from the cleaned column:
+
+```{r agecat}
+leadership$agecat[leadership$age > 75] <- "Elder"
+leadership$agecat[leadership$age >= 35 & leadership$age <= 75] <- "Middle Aged"
+leadership$agecat[leadership$age < 35] <- "Young"
+leadership[, c("manager", "age", "agecat")]
+```
+
+`&` means AND, `|` means OR.
+
+```{r na-omit}
+# na.omit() drops every row with any NA anywhere.
+# Simple, but it can throw away a lot of data — check how much first.
+newdata <- na.omit(leadership)
+nrow(leadership)
+nrow(newdata)
+newdata
+```
+
+## Sorting
+
+```{r sorting}
+order(leadership$age)                 # the row numbers in sorted order
+leadership[order(leadership$age), ]   # the data frame sorted by age
+
+# decreasing, and sorting by two keys
+head(leadership[order(-leadership$age), c("manager", "age")])
+head(leadership[order(leadership$gender, leadership$age), c("gender", "age")])
+```
+
+`order()` returns positions, not values. That is why it goes **inside** the
+square brackets.
+
+## Subsetting
+
+```{r subset-vars}
+# by position
+newdata3 <- leadership[, c(5:9)]
+head(newdata3, 3)
+
+# by name — easier to read and it survives column reordering
+myvars <- c("q1", "q2", "q3", "q4", "q5")
+head(leadership[myvars], 3)
+
+# dropping with minus
+head(leadership[, c(-1, -2)], 3)
+head(leadership[, -(1:5)], 3)
+
+# rows
+leadership[c(2, 4, 5), ]     # keep these rows
+leadership[c(-1, -3), ]      # drop these rows
+```
+
+`subset()` reads more like a sentence and is the easiest to get right:
+
+```{r subset-fn}
+subset(leadership, age >= 35 | age < 24, select = c(q1, q2, q3, q4, q5))
+subset(leadership, gender == "M" & age > 30)
+```
+
+## Merging datasets
+
+Joining two tables on a shared key, the same idea as a SQL `JOIN`.
+
+```{r merge}
+scores <- data.frame(manager = c(1, 2, 3, 4, 5),
+                     bonus   = c(500, 700, 450, 800, 600))
+
+merged <- merge(leadership, scores, by = "manager")
+merged[, c("manager", "country", "age", "bonus")]
+```
+
+`all = TRUE` keeps unmatched rows from both sides (a full outer join);
+`all.x = TRUE` keeps everything from the left table (a left join).
+
+### Practice 8
+
+1. Add a `height_m` column to `data_class` holding the height in metres.
+2. Label everyone taller than 175 cm as "Tall" and the rest as "Short", then
+   count each group.
+3. Sort `data_class` by weight, heaviest first, and show the top 5 rows.
+4. From `airquality`, select the rows where `Temp > 85`, keeping only
+   `Ozone`, `Temp` and `Month`.
+5. How many rows does `airquality` lose to `na.omit()`?
+
+---
+
+# Part 9 — dplyr
+
+dplyr does the same jobs as Part 8 but with five verbs that read like English.
+The pipe `%>%` passes the result on the left into the function on the right, so
+you can chain steps in the order you think of them.
+
+| Verb | Job |
+|---|---|
+| `filter()` | keep certain **rows** |
+| `select()` | keep certain **columns** |
+| `mutate()` | add or change a column |
+| `arrange()` | sort |
+| `summarise()` | collapse to a single row |
+| `group_by()` | do all of the above per group |
+
+```{r dplyr-basics}
+iris %>% filter(Species == "setosa") %>% head(3)
+
+iris %>% select(Species, Petal.Length) %>% head(3)
+
+iris %>%
+  mutate(Petal.Area = Petal.Length * Petal.Width) %>%
+  select(Species, Petal.Length, Petal.Width, Petal.Area) %>%
+  head(3)
+
+iris %>% arrange(desc(Petal.Length)) %>% head(3)
+```
+
+The real power is `group_by()` plus `summarise()`, which replaces `by()` and
+gives a tidy data frame back:
+
+```{r dplyr-group}
+iris %>%
+  group_by(Species) %>%
+  summarise(n       = n(),
+            mean_pl = mean(Petal.Length),
+            sd_pl   = sd(Petal.Length),
+            max_pl  = max(Petal.Length))
+```
+
+Chaining several steps:
+
+```{r dplyr-chain}
+airquality %>%
+  filter(!is.na(Ozone)) %>%
+  mutate(hot = Temp > 80) %>%
+  group_by(Month, hot) %>%
+  summarise(mean_ozone = round(mean(Ozone), 1), days = n(), .groups = "drop") %>%
+  arrange(Month)
+```
+
+The same thing in base R would need several intermediate objects. Compare:
+
+```{r base-vs-dplyr}
+# base R
+mean(iris$Petal.Length[iris$Species == "setosa"])
+
+# dplyr
+iris %>% filter(Species == "setosa") %>% summarise(mean(Petal.Length))
+```
+
+Both are correct. Base R is always available; dplyr is easier to read once a
+task has more than two steps.
+
+### Practice 9
+
+1. Use dplyr to find the mean `Sepal.Width` per species.
+2. Keep only flowers with `Petal.Length > 4`, then count them per species.
+3. Add a column `ratio = Sepal.Length / Sepal.Width` and show the 5 largest.
+
+---
+
+# Part 10 — ggplot2
+
+Base R plots are quick. ggplot2 is for plots you will show other people.
+
+Every ggplot has three parts: the **data**, the **aesthetics** `aes()` which map
+columns to things you can see (x, y, colour, size), and one or more **geoms**
+which decide what is drawn. You add the layers with `+`.
+
+```{r gg-scatter}
+ggplot(iris, aes(x = Petal.Length, y = Petal.Width, colour = Species)) +
+  geom_point(size = 2) +
+  labs(title = "Petal width against petal length",
+       x = "Petal length (cm)", y = "Petal width (cm)") +
+  theme_minimal()
+```
+
+Adding a fitted line per group is one more layer:
+
+```{r gg-smooth}
+ggplot(iris, aes(x = Petal.Length, y = Petal.Width, colour = Species)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = TRUE) +
+  labs(title = "With a regression line per species") +
+  theme_minimal()
+```
+
+Boxplot, the ggplot version of Part 5:
+
+```{r gg-box}
+ggplot(iris, aes(x = Species, y = Sepal.Length, fill = Species)) +
+  geom_boxplot() +
+  labs(title = "Sepal length by species") +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+Bar charts: `position` switches between stacked and side by side.
+
+```{r gg-bars}
+ggplot(ucba, aes(x = Gender, y = Freq, fill = Admit)) +
+  geom_col(position = "stack") +
+  labs(title = "Stacked") + theme_minimal()
+
+ggplot(ucba, aes(x = Gender, y = Freq, fill = Admit)) +
+  geom_col(position = "dodge") +
+  labs(title = "Side by side") + theme_minimal()
+
+# fill makes every bar the same height, so you compare proportions
+ggplot(ucba, aes(x = Gender, y = Freq, fill = Admit)) +
+  geom_col(position = "fill") +
+  labs(title = "Proportions", y = "Share") + theme_minimal()
+```
+
+Histogram and density:
+
+```{r gg-hist}
+ggplot(data_class, aes(x = HEIGHT)) +
+  geom_histogram(binwidth = 5, fill = "steelblue", colour = "white") +
+  labs(title = "Height distribution") + theme_minimal()
+```
+
+**Facets** split one plot into small multiples — the perfect tool for Simpson's
+paradox, because it shows every department at once:
+
+```{r gg-facet, fig.width=8, fig.height=4}
+ggplot(ucba, aes(x = Gender, y = Freq, fill = Admit)) +
+  geom_col(position = "fill") +
+  facet_wrap(~ Dept, nrow = 1) +
+  labs(title = "Admission rate by gender, split by department",
+       y = "Share admitted") +
+  theme_minimal()
+```
+
+That single picture is the whole paradox: the overall gap disappears once each
+department is shown separately.
+
+### Practice 10
+
+1. Scatter plot of `Sepal.Length` against `Sepal.Width`, coloured by species.
+2. Turn it into facets, one panel per species, with `facet_wrap(~ Species)`.
+3. Histogram of `Temp` from `airquality` with a bin width of 5.
+
+---
+
+# Solutions
+
+## Practice 1
+
+```{r sol-1}
+marks <- c(72, 65, 88, 91, 54)
+c(Mean = mean(marks), SD = sd(marks))
+
+marks2 <- c(72, 65, 88, 91, "54")
+class(marks2)    # character: one quoted value coerced the whole vector
+
+m <- matrix(1:9, nrow = 3)
+m %*% m
+
+f <- factor(c("low", "high", "low", "medium"))
+levels(f)
+
+marks3 <- c(72, 65, NA, 91, 54)
+mean(marks3, na.rm = TRUE)
+```
+
+## Practice 2
+
+```{r sol-2}
+airquality[20:25, c("Ozone", "Temp")]
+head(airquality[, !(names(airquality) %in% c("Month", "Day"))], 3)
+nrow(airquality)
+sum(is.na(airquality$Ozone))
+
+class(airquality["Temp"])   # data.frame
+class(airquality$Temp)      # numeric vector
+```
+
+## Practice 3
+
+```{r sol-3}
+c(Mean = mean(airquality$Temp), SD = sd(airquality$Temp))
+apply(airquality, 2, max, na.rm = TRUE)
+quantile(airquality$Wind, 0.75)
+```
+
+## Practice 5
+
+```{r sol-5}
+by(iris$Sepal.Width, iris$Species, mean)
+boxplot(Sepal.Width ~ Species, data = iris, col = "lightblue")
+
+summary(aov(Sepal.Width ~ Species, data = iris))
+
+round(prop.table(xtabs(Freq ~ Dept + Gender, data = ucba), 1), 3)
+
+cor(airquality$Ozone, airquality$Temp, use = "complete.obs")
+```
+
+## Practice 7
+
+```{r sol-7}
+m1 <- lm(Petal.Length ~ Petal.Width, data = iris)
+summary(m1)$r.squared
+
+par(mfrow = c(2, 2)); plot(m1); par(mfrow = c(1, 1))
+
+predict(m1, newdata = data.frame(Petal.Width = 1.5))
+
+m2 <- lm(Petal.Length ~ Petal.Width + Sepal.Length, data = iris)
+c(one_predictor = summary(m1)$r.squared,
+  two_predictors = summary(m2)$r.squared)
+```
+
+## Practice 8
+
+```{r sol-8}
+data_class$height_m <- data_class$HEIGHT / 100
+head(data_class, 3)
+
+data_class$size <- ifelse(data_class$HEIGHT > 175, "Tall", "Short")
+table(data_class$size)
+
+head(data_class[order(-data_class$WEIGHT), ], 5)
+
+subset(airquality, Temp > 85, select = c(Ozone, Temp, Month))
+
+nrow(airquality) - nrow(na.omit(airquality))
+```
+
+## Practice 9
+
+```{r sol-9}
+iris %>% group_by(Species) %>% summarise(mean_sw = mean(Sepal.Width))
+
+iris %>% filter(Petal.Length > 4) %>% count(Species)
+
+iris %>%
+  mutate(ratio = Sepal.Length / Sepal.Width) %>%
+  arrange(desc(ratio)) %>%
+  select(Species, Sepal.Length, Sepal.Width, ratio) %>%
+  head(5)
+```
+
+## Practice 10
+
+```{r sol-10}
+ggplot(iris, aes(Sepal.Length, Sepal.Width, colour = Species)) +
+  geom_point() + theme_minimal()
+
+ggplot(iris, aes(Sepal.Length, Sepal.Width, colour = Species)) +
+  geom_point() + facet_wrap(~ Species) + theme_minimal() +
+  theme(legend.position = "none")
+
+ggplot(airquality, aes(Temp)) +
+  geom_histogram(binwidth = 5, fill = "tomato", colour = "white") +
+  theme_minimal()
+```
+
+---
+
+# Quick reference
+
+| Task | Command |
+|---|---|
+| Structure of a dataset | `str(d)` |
+| Summary of everything | `summary(d)` |
+| First / last rows | `head(d)`, `tail(d)` |
+| One column | `d$col`, `d[["col"]]` |
+| Rows and columns | `d[rows, cols]`, minus to drop |
+| Mean of each column | `apply(d, 2, mean)` or `colMeans(d)` |
+| Mean per group | `by(y, g, mean)`, `tapply(y, g, mean)` |
+| Frequency table | `table(x)`, `xtabs(Freq ~ a + b, data = d)` |
+| Row proportions | `prop.table(tab, 1)` |
+| Boxplot by group | `boxplot(y ~ g, data = d)` |
+| Correlation | `cor(x, y)`, `cor.test(x, y)` |
+| Compare 2 group means | `t.test(y ~ g, data = d)` |
+| Compare 3+ group means | `summary(aov(y ~ g, data = d))` |
+| Two categorical variables | `chisq.test(tab)` |
+| Regression | `summary(lm(y ~ x, data = d))` |
+| Check assumptions | `plot(model)` |
+| Drop missing rows | `na.omit(d)` |
+| Ignore missing in a stat | `mean(x, na.rm = TRUE)` |
+| Sort | `d[order(d$col), ]` |
+| Filter rows | `subset(d, cond)`, `filter(d, cond)` |
+| Add a column | `d$new <- ...`, `mutate()` |
+| Join two tables | `merge(a, b, by = "key")` |
+
+**The three things that cause most errors:** using `=` where you need `==`,
+forgetting `na.rm = TRUE`, and mixing up `1` (rows) and `2` (columns).
